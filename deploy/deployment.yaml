@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: autohealer-config
+  namespace: kube-system
+data:
+  config.yaml: |
+    interval_seconds: 30
+    dry_run: true            # flip to false once you trust it on this cluster
+    namespaces: []
+    thresholds:
+      node_cpu_percent: 85
+      node_memory_percent: 85
+      pod_restart_threshold: 5
+      pod_pending_minutes: 10
+      pod_terminating_minutes: 10
+    healing:
+      delete_evicted_pods: true
+      restart_crashloop_pods: true
+      delete_stuck_terminating: true
+      cordon_unready_nodes: false
+      scale_on_high_cpu: false
+    scaling:
+      target_deployment: ""
+      min_replicas: 1
+      max_replicas: 5
+    slack:
+      min_severity: warning
+    metrics:
+      port: 9090
+---
+# Optional Slack webhook. Create it with:
+#   kubectl -n kube-system create secret generic autohealer-slack \
+#     --from-literal=webhook-url='https://hooks.slack.com/services/XXX/YYY/ZZZ'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autohealer
+  namespace: kube-system
+  labels: { app: autohealer }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: autohealer } }
+  template:
+    metadata:
+      labels: { app: autohealer }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: autohealer
+      containers:
+        - name: autohealer
+          image: ghcr.io/REPLACE_ME/k8s-health-autohealer:latest   # build + push, then set this
+          ports:
+            - { containerPort: 9090, name: metrics }
+          env:
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef: { name: autohealer-slack, key: webhook-url, optional: true }
+          volumeMounts:
+            - { name: config, mountPath: /app/config }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+      volumes:
+        - name: config
+          configMap: { name: autohealer-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autohealer
+  namespace: kube-system
+  labels: { app: autohealer }
+spec:
+  selector: { app: autohealer }
+  ports:
+    - { port: 9090, targetPort: 9090, name: metrics }

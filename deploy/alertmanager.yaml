@@ -1,0 +1,16 @@
+route:
+  receiver: slack
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: slack
+    slack_configs:
+      # Replace with your incoming-webhook URL (or template it in via env at deploy time).
+      - api_url: "https://hooks.slack.com/services/REPLACE/WITH/WEBHOOK"
+        channel: "#alerts"
+        send_resolved: true
+        title: "{{ .CommonAnnotations.summary }}"
+        text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"

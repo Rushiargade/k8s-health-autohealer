@@ -1,0 +1,64 @@
+{
+  "title": "Kubernetes Health & Auto-Healing",
+  "uid": "k8s-autohealer",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["kubernetes", "autohealer"],
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Nodes Ready / Total",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "autohealer_nodes_ready", "legendFormat": "ready", "refId": "A" },
+        { "expr": "autohealer_nodes_total", "legendFormat": "total", "refId": "B" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Unhealthy Pods by Issue",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "autohealer_pods_unhealthy", "legendFormat": "{{issue}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Healing Actions (rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "sum by (action, result) (rate(autohealer_actions_total[5m]))", "legendFormat": "{{action}} / {{result}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Node CPU %",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100 }, "overrides": [] },
+      "targets": [
+        { "expr": "autohealer_node_cpu_percent", "legendFormat": "{{node}}", "refId": "A" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+# RBAC for the auto-healer. Unlike a read-only monitor, the healer needs WRITE verbs to
+# act on the cluster: delete pods (restart / clean up), patch nodes (cordon), and
+# scale/patch deployments. Scope is exactly those actions and nothing more.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: autohealer
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: autohealer
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "namespaces", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]                       # restart crash-looping / clean up evicted pods
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["patch", "update"]              # cordon an unready node
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale", "statefulsets"]
+    verbs: ["get", "list", "watch", "patch", "update"]   # rollout-restart + scale
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]                  # resource utilisation (requires metrics-server)
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: autohealer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: autohealer
+subjects:
+  - kind: ServiceAccount
+    name: autohealer
+    namespace: kube-system

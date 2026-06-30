@@ -1,0 +1,35 @@
+# k8s-health-autohealer configuration. Every value can be overridden; the Slack webhook
+# and the dry-run switch can also be set via environment variables at deploy time
+# (SLACK_WEBHOOK_URL, DRY_RUN) so secrets never live in the repo.
+
+interval_seconds: 30        # health-check loop cadence
+dry_run: true               # SAFE DEFAULT: log healing actions but do NOT execute them.
+                            #   Set false (or DRY_RUN=false) to let the healer act on the cluster.
+kubeconfig: ""              # "" = in-cluster service account; or a path to a kubeconfig for local runs
+namespaces: []              # [] = watch all namespaces; or a list of specific ones
+
+thresholds:
+  node_cpu_percent: 85        # node CPU% that counts as "high"
+  node_memory_percent: 85
+  pod_restart_threshold: 5    # restarts before a pod is treated as crash-looping
+  pod_pending_minutes: 10     # a pod Pending longer than this is "stuck"
+  pod_terminating_minutes: 10
+
+healing:                      # per-action switches (all still gated by dry_run)
+  delete_evicted_pods: true
+  restart_crashloop_pods: true
+  delete_stuck_terminating: true
+  cordon_unready_nodes: false   # node-level actions OFF by default (conservative)
+  scale_on_high_cpu: false
+
+scaling:                      # used only when healing.scale_on_high_cpu is true
+  target_deployment: ""       # "namespace/name" to scale on sustained high CPU
+  min_replicas: 1
+  max_replicas: 5
+
+slack:
+  webhook_url: ""             # or set SLACK_WEBHOOK_URL
+  min_severity: warning       # info | warning | critical
+
+metrics:
+  port: 9090                  # Prometheus /metrics endpoint

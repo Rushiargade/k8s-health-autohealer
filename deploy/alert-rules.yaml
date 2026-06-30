@@ -1,0 +1,40 @@
+groups:
+  - name: autohealer.rules
+    rules:
+      - alert: ClusterNodesNotReady
+        expr: (autohealer_nodes_total - autohealer_nodes_ready) > 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $value }} Kubernetes node(s) NotReady"
+          description: "One or more nodes have been NotReady for over 2 minutes."
+
+      - alert: PodsCrashLooping
+        expr: autohealer_pods_unhealthy{issue="CrashLoopBackOff"} > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} pod(s) crash-looping"
+          description: "Pods are stuck in CrashLoopBackOff; the healer restarts them when enforcing."
+
+      - alert: PodsImagePullFailing
+        expr: autohealer_pods_unhealthy{issue="ImagePullBackOff"} > 0
+        for: 3m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} pod(s) failing image pull"
+          description: "Bad tag, missing registry credential, or registry outage."
+
+      - alert: HealingActionsFailing
+        expr: increase(autohealer_actions_total{result="error"}[10m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "Auto-healer actions are failing"
+          description: "A healing action errored in the last 10m — check the healer's RBAC and logs."
+
+      - alert: NodeHighCPU
+        expr: autohealer_node_cpu_percent > 90
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Node {{ $labels.node }} CPU above 90% for 10m"

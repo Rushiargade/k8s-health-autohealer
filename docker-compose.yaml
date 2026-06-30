@@ -1,0 +1,41 @@
+# Local demo stack: the auto-healer (dry-run, using your local kubeconfig) plus the
+# Prometheus / Alertmanager / Grafana trio it feeds. Point it at a kind or minikube
+# cluster. For a real cluster deployment use the manifests in deploy/ instead.
+services:
+  autohealer:
+    build: .
+    environment:
+      DRY_RUN: "true"
+      KUBECONFIG_PATH: /kube/config
+      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
+    volumes:
+      - "${HOME:-${USERPROFILE}}/.kube/config:/kube/config:ro"
+    ports:
+      - "9090:9090"
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./deploy/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/alert-rules.yaml:/etc/prometheus/alert-rules.yaml:ro
+    ports:
+      - "9091:9090"
+    depends_on: [autohealer]
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    volumes:
+      - ./deploy/alertmanager.yaml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./deploy/grafana-dashboard.json:/var/lib/grafana/dashboards/autohealer.json:ro
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus]
