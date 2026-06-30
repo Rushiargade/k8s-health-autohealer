@@ -166,121 +166,80 @@ k8s-health-autohealer/
 
 ## Screenshots
 
-### Healer Startup
+> Deployed live on AWS EC2 (t3.small, Amazon Linux 2023) with k3s — all screenshots from the actual running system.
+
+### 1. Simulate Failures — Injecting Bad Pods
+
+```bash
+$ python3 scripts/simulate_failures.py
+
+created namespace healer-demo
+created pod healer-demo/crashloop      # busybox that exits every 2s → CrashLoopBackOff
+created pod healer-demo/imagepull      # invalid image → ImagePullBackOff
+
+Watch:   kubectl -n healer-demo get pods -w
+Cleanup: kubectl delete namespace healer-demo
+```
+
+![Simulate Failures](docs/screenshots/simulate-failures.png)
+
+---
+
+### 2. Healer — Detecting & Healing in Enforcing Mode
+
+The healer switches from DRY-RUN to **ENFORCING**, detects the crashloop pod at restart #5, and applies the fix automatically. The audit log entry is printed in real time:
 
 ```
-$ python -m src.main
-
-k8s-health-autohealer started -- DRY-RUN, interval 30s, metrics on :9090
-tick: 3 nodes, 47 pods, 0 unhealthy
-tick: 3 nodes, 47 pods, 0 unhealthy
-tick: 3 nodes, 49 pods, 2 unhealthy
-[DRY-RUN] would restart_pod  pod/healer-demo/crashloop-7d9f6b (CrashLoopBackOff, restarts=7)
-[DRY-RUN] would delete_evicted  pod/default/worker-evicted-xk2p9
-tick: 3 nodes, 49 pods, 2 unhealthy
-```
-
-### Enforcing Mode — Self-Healing in Action
-
-```
-$ DRY_RUN=false python -m src.main
-
 k8s-health-autohealer started -- ENFORCING, interval 30s, metrics on :9090
-tick: 3 nodes, 49 pods, 2 unhealthy
-  [APPLIED] restart_pod  pod/healer-demo/crashloop-7d9f6b  (CrashLoopBackOff, restarts=7)
-  [APPLIED] delete_evicted  pod/default/worker-evicted-xk2p9
-tick: 3 nodes, 48 pods, 1 unhealthy
-  [APPLIED] restart_pod  pod/healer-demo/crashloop-9c3a1e  (CrashLoopBackOff, restarts=2)
-tick: 3 nodes, 48 pods, 0 unhealthy
+tick: 1 nodes, 9 pods, 1 unhealthy
+[notify:warning] ImagePullBackOff needs attention: pod/healer-demo/imagepull (not auto-healed by design)
+{"ts": "2026-06-30T09:18:35.321198+00:00", "action": "restart_pod",
+ "target": "pod/healer-demo/crashloop", "result": "applied",
+ "dry_run": false, "issue": "CrashLoopBackOff", "restarts": 5}
+[notify:warning] Healed: restart_pod pod/healer-demo/crashloop
+tick: 1 nodes, 8 pods, 1 unhealthy
 ```
 
-### One-Shot Health Snapshot
+![Healer Enforcing](docs/screenshots/healer-enforcing.png)
+
+**What happened:**
+- `CrashLoopBackOff` at restart 5 → pod deleted → controller schedules a fresh one
+- `ImagePullBackOff` → alert only (bad image = human decision needed, by design)
+- Pod count drops from 9 → 8 confirming the delete was applied
+
+---
+
+### 3. Live Prometheus Metrics (browser at `http://34.227.24.14:9090/metrics`)
+
+Real metrics from the AWS EC2 instance:
 
 ```
-$ python scripts/healthcheck.py
-
-=== NODES ===
-  node-1   Ready    cpu=12%   mem=44%   issues=[]
-  node-2   Ready    cpu=67%   mem=71%   issues=[]
-  node-3   NotReady cpu=0%    mem=0%    issues=[NotReady]
-
-=== PODS (54 total) ===
-  Evicted:          2
-  CrashLoopBackOff: 1
-  OOMKilled:        0
-  ImagePullBackOff: 1
-  StuckPending:     0
-  StuckTerminating: 0
-  Healthy:         50
-```
-
-### Simulate Failures Demo
-
-```
-$ python scripts/simulate_failures.py
-
-Creating namespace healer-demo...
-  [OK] namespace healer-demo created
-Injecting crash-loop pod...
-  [OK] pod/healer-demo/crashloop created  (busybox that exits 1 every 2s)
-Injecting image-pull-error pod...
-  [OK] pod/healer-demo/imagepull created  (invalid-registry.io/no-such-image:latest)
-
-Watch the healer detect them:
-  kubectl -n healer-demo get pods -w
-
-Clean up when done:
-  kubectl delete namespace healer-demo
-```
-
-### Prometheus Metrics
-
-```
-$ curl -s localhost:9090/metrics | grep autohealer_
-
-# HELP autohealer_nodes_total Total nodes in the cluster
-autohealer_nodes_total 3.0
-# HELP autohealer_nodes_ready Nodes currently in Ready state
-autohealer_nodes_ready 2.0
-# HELP autohealer_pods_total Total pods across watched namespaces
-autohealer_pods_total 54.0
-# HELP autohealer_pods_unhealthy Unhealthy pods by issue type
-autohealer_pods_unhealthy{issue="CrashLoopBackOff"} 1.0
-autohealer_pods_unhealthy{issue="Evicted"} 2.0
-autohealer_pods_unhealthy{issue="ImagePullBackOff"} 1.0
+autohealer_nodes_total 1.0
+autohealer_nodes_ready 1.0
+autohealer_pods_total 9.0
+autohealer_pods_unhealthy{issue="CrashLoopBackOff"} 0.0
+autohealer_pods_unhealthy{issue="Evicted"} 0.0
 autohealer_pods_unhealthy{issue="OOMKilled"} 0.0
+autohealer_pods_unhealthy{issue="ImagePullBackOff"} 1.0
 autohealer_pods_unhealthy{issue="StuckPending"} 0.0
 autohealer_pods_unhealthy{issue="StuckTerminating"} 0.0
-# HELP autohealer_node_cpu_percent Per-node CPU utilisation percent
-autohealer_node_cpu_percent{node="node-1"} 12.0
-autohealer_node_cpu_percent{node="node-2"} 67.0
-# HELP autohealer_actions_total Healing actions by type and result
-autohealer_actions_total{action="restart_pod",result="applied"} 3.0
-autohealer_actions_total{action="delete_evicted",result="applied"} 2.0
+autohealer_node_cpu_percent{node="ip-172-31-26-192.ec2.internal"} 3.5
+autohealer_node_memory_percent{node="ip-172-31-26-192.ec2.internal"} 59.7
 ```
 
-### Audit Log (`logs/actions.jsonl`)
+![Prometheus Metrics](docs/screenshots/metrics.png)
+
+---
+
+### 4. Audit Log (real entry from the live run)
+
+Every healing action is written to `logs/actions.jsonl` with full detail:
 
 ```json
-{"ts":"2026-06-30T10:15:02Z","action":"restart_pod","target":"pod/healer-demo/crashloop-7d9f6b","result":"applied","dry_run":false,"issue":"CrashLoopBackOff","restarts":7}
-{"ts":"2026-06-30T10:15:02Z","action":"delete_evicted","target":"pod/default/worker-evicted-xk2p9","result":"applied","dry_run":false,"issue":"Evicted"}
-{"ts":"2026-06-30T10:15:33Z","action":"cordon_node","target":"node/node-3","result":"dry-run","dry_run":true,"issue":"NotReady"}
-{"ts":"2026-06-30T10:16:04Z","action":"scale_up","target":"deployment/default/api-server","result":"applied","dry_run":false,"old_replicas":2,"new_replicas":3}
+{"ts": "2026-06-30T09:18:35.321198+00:00", "action": "restart_pod", "target": "pod/healer-demo/crashloop", "result": "applied", "dry_run": false, "issue": "CrashLoopBackOff", "restarts": 5}
 ```
 
-### Slack Notification
-
-```
-:rotating_light: [CRITICAL] Node node-3 is NotReady
-  action: cordon_node | target: node/node-3 | cluster: production
-
-:warning: [WARNING] pod/healer-demo/crashloop-7d9f6b is CrashLoopBackOff (restarts=7)
-  action: restart_pod applied successfully
-
-:information_source: [INFO] Auto-healer started (ENFORCING)
-```
-
-### Grafana Dashboard
+### 5. Grafana Dashboard
 
 > Import `deploy/grafana-dashboard.json` into Grafana (http://localhost:3000 when using Docker Compose).
 
