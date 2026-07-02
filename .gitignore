@@ -11,3 +11,5 @@ logs/
 .idea/
 .vscode/
 *.egg-info/
+*.pem
+rk.pem
